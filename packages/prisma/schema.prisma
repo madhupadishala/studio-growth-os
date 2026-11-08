@@ -1,0 +1,839 @@
+// ============================================================================
+// Studio Growth OS - Prisma Schema v2.0
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// TENANT & AUTH
+// ============================================================================
+
+model Tenant {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  name          String
+  status        String   @default("active")
+  planId        String   @map("plan_id")
+  brandConfig   Json     @map("brand_config")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  domains       TenantDomain[]
+  users         Membership[]
+  contacts      Contact[]
+  leads         Lead[]
+  inboundEvents InboundEvent[]
+  conversations Conversation[]
+  packages      ServicePackage[]
+  pricingRules  PricingRule[]
+  quotes        Quote[]
+  bookings      Booking[]
+  resources     Resource[]
+  media         Media[]
+  contentPages  ContentPage[]
+  faqEntries    FaqEntry[]
+  seoLocalities SeoLocality[]
+  seoSettings   SeoSettings?
+  connectors    ConnectorConfig[]
+  businessSettings BusinessSettings?
+  payments      Payment[]
+  slotHolds     SlotHold[]
+  attributionEvents AttributionEvent[]
+  auditEvents   AuditEvent[]
+  consentEvents ConsentEvent[]
+  teamProfiles  TeamProfile[]
+  scheduledReports ScheduledReport[]
+  anomalyRules  AnomalyRule[]
+  marketplaceListings MarketplaceListing[]
+  benchmarkAggregates BenchmarkAggregate[]
+  agentTraces   AgentTrace[]
+  connectorHealth ConnectorHealth[]
+  predictiveScores PredictiveScore[]
+
+  @@map("tenants")
+}
+
+model TenantDomain {
+  id               String   @id @default(cuid())
+  tenantId         String   @map("tenant_id")
+  hostname         String   @unique
+  verificationStatus String @default("pending") @map("verification_status")
+  verifiedAt       DateTime? @map("verified_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_domains")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  phoneE164 String?  @unique @map("phone_e164")
+  avatarUrl String?  @map("avatar_url")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  ownedLeads  Lead[]      @relation("LeadOwner")
+  approvedQuotes Quote[] @relation("QuoteApprover")
+  confirmedBookings Booking[] @relation("BookingConfirmer")
+  teamProfiles TeamProfile[]
+
+  @@map("users")
+}
+
+model Membership {
+  userId   String @map("user_id")
+  tenantId String @map("tenant_id")
+  role     String
+  status   String @default("active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([userId, tenantId])
+  @@map("memberships")
+}
+
+// ============================================================================
+// CONTACTS & LEADS
+// ============================================================================
+
+model Contact {
+  id            String   @id @default(cuid())
+  tenantId      String   @map("tenant_id")
+  phoneE164     String?  @map("phone_e164")
+  emailNormalized String? @map("email_normalized")
+  displayName   String   @map("display_name")
+  consentState  String   @default("unknown") @map("consent_state")
+  sourceFirst   String   @map("source_first")
+  sourceLast    String   @map("source_last")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  leads         Lead[]
+  conversations Conversation[]
+
+  @@unique([tenantId, phoneE164])
+  @@unique([tenantId, emailNormalized])
+  @@index([tenantId, phoneE164])
+  @@index([tenantId, emailNormalized])
+  @@map("contacts")
+}
+
+model Lead {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  contactId    String   @map("contact_id")
+  stage        String   @default("new")
+  score        Int      @default(0)
+  reasonsJson  Json     @map("reasons_json")
+  ownerId      String?  @map("owner_id")
+  eventDate    DateTime? @map("event_date")
+  budgetBand   String?  @map("budget_band")
+  sourceFirst  String   @map("source_first")
+  sourceLast   String   @map("source_last")
+  utmJson      Json?    @map("utm_json")
+  campaign     String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact      Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  owner        User?         @relation("LeadOwner", fields: [ownerId], references: [id])
+  quotes       Quote[]
+  conversations Conversation[]
+  messages     Message[]
+  attributionEvents AttributionEvent[]
+  predictiveScores PredictiveScore[]
+
+  @@index([tenantId, stage])
+  @@index([tenantId, ownerId])
+  @@index([tenantId, eventDate])
+  @@map("leads")
+}
+
+// ============================================================================
+// INBOUND EVENTS & IDENTITY
+// ============================================================================
+
+model InboundEvent {
+  id              String   @id @default(cuid())
+  tenantId        String   @map("tenant_id")
+  provider        String
+  providerEventId String   @map("provider_event_id")
+  eventType       String   @map("event_type")
+  externalActorId String?  @map("external_actor_id")
+  occurredAt      DateTime @map("occurred_at")
+  sourceAssetId   String?  @map("source_asset_id")
+  campaign        String?
+  utm             Json?
+  payloadRef      String   @map("payload_ref")
+  consentEvidence Json?    @map("consent_evidence")
+  state           String   @default("received")
+  processedAt     DateTime? @map("processed_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, provider, providerEventId])
+  @@index([tenantId, provider, state])
+  @@map("inbound_events")
+}
+
+// ============================================================================
+// CONVERSATIONS & MESSAGES
+// ============================================================================
+
+model Conversation {
+  id                    String   @id @default(cuid())
+  tenantId              String   @map("tenant_id")
+  leadId                String   @map("lead_id")
+  channel               String
+  status                String   @default("open")
+  providerConversationId String? @map("provider_conversation_id")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@index([tenantId, leadId])
+  @@index([tenantId, channel])
+  @@map("conversations")
+}
+
+model Message {
+  id              String   @id @default(cuid())
+  tenantId        String   @map("tenant_id")
+  conversationId  String   @map("conversation_id")
+  leadId          String   @map("lead_id")
+  channel         String
+  direction       String
+  content         String
+  providerMessageId String?  @map("provider_message_id")
+  status          String   @default("delivered")
+  eventAt         DateTime @map("event_at")
+  metadataJson    Json?    @map("metadata_json")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation  Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  lead          Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, conversationId])
+  @@index([tenantId, leadId])
+  @@map("messages")
+}
+
+// ============================================================================
+// PACKAGES & PRICING
+// ============================================================================
+
+model ServicePackage {
+  id            String   @id @default(cuid())
+  tenantId      String   @map("tenant_id")
+  name          String
+  slug          String
+  description   String?
+  basePricePaise Int     @map("base_price_paise")
+  currency      String   @default("INR")
+  durationHours Int      @map("duration_hours")
+  deliverables  Json
+  addOns        Json
+  travelPolicy  Json     @map("travel_policy")
+  isActive      Boolean  @default(true) @map("is_active")
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  quotes     Quote[]
+  quoteItems QuoteItem[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, isActive])
+  @@map("service_packages")
+}
+
+model PricingRule {
+  id            String   @id @default(cuid())
+  tenantId      String   @map("tenant_id")
+  version       Int
+  effectiveFrom DateTime @map("effective_from")
+  ruleJson      Json     @map("rule_json")
+  currency      String   @default("INR")
+  approvedBy    String?  @map("approved_by")
+  isActive      Boolean  @default(false) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, version])
+  @@index([tenantId, effectiveFrom])
+  @@map("pricing_rules")
+}
+
+// ============================================================================
+// QUOTES
+// ============================================================================
+
+model Quote {
+  id               String   @id @default(cuid())
+  tenantId         String   @map("tenant_id")
+  leadId           String   @map("lead_id")
+  revision         Int      @default(1)
+  status           String   @default("draft")
+  pricebookVersion Int      @map("pricebook_version")
+  totalsJson       Json     @map("totals_json")
+  expiresAt        DateTime @map("expires_at")
+  approvedBy       String?  @map("approved_by")
+  approvedAt       DateTime? @map("approved_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  tenant       Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead         Lead        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  approver     User?       @relation("QuoteApprover", fields: [approvedBy], references: [id])
+  items        QuoteItem[]
+  bookings     Booking[]
+  payments     Payment[]
+
+  @@index([tenantId, leadId])
+  @@index([tenantId, status])
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id              String   @id @default(cuid())
+  quoteId         String   @map("quote_id")
+  packageId       String?  @map("package_id")
+  addonId         String?  @map("addon_id")
+  name            String
+  basePricePaise  Int      @map("base_price_paise")
+  quantity        Int      @default(1)
+  lineTotalPaise  Int      @map("line_total_paise")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  quote    Quote            @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  package  ServicePackage?  @relation(fields: [packageId], references: [id])
+  // addon references ServicePackage addOns JSON
+
+  @@index([quoteId])
+  @@map("quote_items")
+}
+
+// ============================================================================
+// RESOURCES & BOOKINGS
+// ============================================================================
+
+model Resource {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  name        String
+  type        String   // photographer, videographer, studio_space, equipment
+  capacity    Int      @default(1)
+  description String?
+  metadata    Json?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  bookings  Booking[]
+  slotHolds SlotHold[]
+
+  @@index([tenantId, type])
+  @@map("resources")
+}
+
+model Booking {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  resourceId   String   @map("resource_id")
+  customerId   String   @map("customer_id")
+  quoteId      String?  @map("quote_id")
+  startsAt     DateTime @map("starts_at")
+  endsAt       DateTime @map("ends_at")
+  state        String   @default("hold")
+  paymentId    String?  @map("payment_id")
+  confirmedBy  String?  @map("confirmed_by")
+  confirmedAt  DateTime? @map("confirmed_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  resource  Resource  @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  customer  Contact   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  quote     Quote?    @relation(fields: [quoteId], references: [id])
+  payment   Payment?  @relation(fields: [paymentId], references: [id])
+
+  @@index([tenantId, resourceId, startsAt, endsAt])
+  @@index([tenantId, state])
+  @@map("bookings")
+}
+
+model SlotHold {
+  id                  String   @id @default(cuid())
+  tenantId            String   @map("tenant_id")
+  resourceId          String   @map("resource_id")
+  leadId              String   @map("lead_id")
+  startsAt            DateTime @map("starts_at")
+  endsAt              DateTime @map("ends_at")
+  ttlMinutes          Int      @default(30) @map("ttl_minutes")
+  state               String   @default("active")
+  holdIdempotencyKey  String   @unique @map("hold_idempotency_key")
+  createdAt           DateTime @default(now()) @map("created_at")
+  expiresAt           DateTime @map("expires_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  lead     Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, resourceId, startsAt, endsAt])
+  @@index([tenantId, state])
+  @@map("slot_holds")
+}
+
+// ============================================================================
+// PAYMENTS
+// ============================================================================
+
+model Payment {
+  id                String   @id @default(cuid())
+  tenantId          String   @map("tenant_id")
+  bookingId         String?  @map("booking_id")
+  quoteId           String?  @map("quote_id")
+  razorpayOrderId   String   @map("razorpay_order_id")
+  razorpayPaymentId String?  @map("razorpay_payment_id")
+  amountPaise       Int      @map("amount_paise")
+  currency          String   @default("INR")
+  status            String   @default("initiated")
+  method            String?
+  capturedAt        DateTime? @map("captured_at")
+  feePaise          Int?     @map("fee_paise")
+  netPaise          Int?     @map("net_paise")
+  idempotencyKey    String   @unique @map("idempotency_key")
+  ledgerSyncedAt    DateTime? @map("ledger_synced_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  booking Booking? @relation(fields: [bookingId], references: [id])
+  quote Quote? @relation(fields: [quoteId], references: [id])
+
+  @@index([tenantId, razorpayOrderId])
+  @@index([tenantId, status])
+  @@map("payments")
+}
+
+// ============================================================================
+// MEDIA & CONTENT
+// ============================================================================
+
+model Media {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  storageKey   String   @map("storage_key")
+  mediaType    String   @map("media_type") // image, video
+  url          String
+  altText      String?  @map("alt_text")
+  tags         String[]
+  rights       String   @default("stock_placeholder")
+  fileSizeBytes Int?    @map("file_size_bytes")
+  mimeType     String?  @map("mime_type")
+  width        Int?
+  height       Int?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, mediaType])
+  @@index([tenantId, tags])
+  @@map("media")
+}
+
+model ContentPage {
+  id               String   @id @default(cuid())
+  tenantId         String   @map("tenant_id")
+  route            String
+  locale           String   @default("en")
+  title            String
+  contentJson      Json     @map("content_json")
+  draftVersion     Int      @default(1) @map("draft_version")
+  publishedVersion Int      @default(1) @map("published_version")
+  status           String   @default("draft")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, route, locale])
+  @@map("content_pages")
+}
+
+// ============================================================================
+// FAQ
+// ============================================================================
+
+model FaqEntry {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  question     String
+  answer       String
+  category     String
+  displayOrder Int      @default(0) @map("display_order")
+  isPublished  Boolean  @default(true) @map("is_published")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, category])
+  @@map("faq_entries")
+}
+
+// ============================================================================
+// SEO
+// ============================================================================
+
+model SeoLocality {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  locality  String
+  city      String
+  state     String
+  country   String   @default("India")
+  latitude  Float?
+  longitude Float?
+  priority  Int      @default(1)
+  keywords  String[]
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, locality])
+  @@map("seo_localities")
+}
+
+model SeoSettings {
+  id                String   @id @default(cuid())
+  tenantId          String   @unique @map("tenant_id")
+  siteName          String   @map("site_name")
+  defaultTitle      String   @map("default_title")
+  defaultDescription String  @map("default_description")
+  ogImageUrl        String?  @map("og_image_url")
+  twitterHandle     String?  @map("twitter_handle")
+  schemaType        String   @default("Photographer") @map("schema_type")
+  geoCoordinates    Json?    @map("geo_coordinates")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("seo_settings")
+}
+
+// ============================================================================
+// CONNECTORS
+// ============================================================================
+
+model ConnectorConfig {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  provider     String
+  configJson   Json     @map("config_json")
+  status       String   @default("not_authorized")
+  authorizedAt DateTime? @map("authorized_at")
+  lastSyncAt   DateTime? @map("last_sync_at")
+  errorCount   Int      @default(0) @map("error_count")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, provider])
+  @@map("connector_configs")
+}
+
+// ============================================================================
+// BUSINESS SETTINGS
+// ============================================================================
+
+model BusinessSettings {
+  id           String   @id @default(cuid())
+  tenantId     String   @unique @map("tenant_id")
+  settingsJson Json     @map("settings_json")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("business_settings")
+}
+
+// ============================================================================
+// ATTRIBUTION & ANALYTICS
+// ============================================================================
+
+model AttributionEvent {
+  id                   String   @id @default(cuid())
+  tenantId             String   @map("tenant_id")
+  leadId               String   @map("lead_id")
+  touchpointSeq        Int      @map("touchpoint_seq")
+  channel              String
+  campaign             String?
+  utmJson              Json?    @map("utm_json")
+  modelWeightsJson     Json     @map("model_weights_json")
+  revenueAttributedPaise Int     @map("revenue_attributed_paise")
+  occurredAt           DateTime @map("occurred_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, leadId])
+  @@index([tenantId, channel])
+  @@map("attribution_events")
+}
+
+model PredictiveScore {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  leadId       String   @map("lead_id")
+  modelVersion String   @map("model_version")
+  score        Int
+  confidence   Float
+  featuresJson Json     @map("features_json")
+  fallbackUsed Boolean  @default(false) @map("fallback_used")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, leadId])
+  @@index([tenantId, modelVersion])
+  @@map("predictive_scores")
+}
+
+model BenchmarkAggregate {
+  id              String   @id @default(cuid())
+  metricName      String   @map("metric_name")
+  periodStart     DateTime @map("period_start")
+  periodEnd       DateTime @map("period_end")
+  p25             Float
+  p50             Float
+  p75             Float
+  p90             Float
+  sampleCount     Int      @map("sample_count")
+  privacyEpsilon  Float    @map("privacy_epsilon")
+  computedAt      DateTime @default(now()) @map("computed_at")
+
+  @@unique([metricName, periodStart, periodEnd])
+  @@map("benchmark_aggregates")
+}
+
+// ============================================================================
+// AUDIT & CONSENT
+// ============================================================================
+
+model AuditEvent {
+  id              String   @id @default(cuid())
+  tenantId        String   @map("tenant_id")
+  actorId         String?  @map("actor_id")
+  action          String
+  entityType      String   @map("entity_type")
+  entityId        String   @map("entity_id")
+  beforeAfterRef  Json?    @map("before_after_ref")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, entityType, entityId])
+  @@index([tenantId, createdAt])
+  @@map("audit_events")
+}
+
+model ConsentEvent {
+  id         String   @id @default(cuid())
+  tenantId   String   @map("tenant_id")
+  subjectId  String   @map("subject_id")
+  subjectType String  @map("subject_type") // contact, lead
+  purpose    String
+  proofRef   Json     @map("proof_ref")
+  status     String   @default("granted")
+  expiresAt  DateTime? @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, subjectId, purpose])
+  @@map("consent_events")
+}
+
+// ============================================================================
+// TEAM & OPERATIONS
+// ============================================================================
+
+model TeamProfile {
+  id              String   @id @default(cuid())
+  userId          String   @map("user_id")
+  tenantId        String   @map("tenant_id")
+  roleTitle       String   @map("role_title")
+  specialties     String[]
+  hourlyRatePaise Int      @map("hourly_rate_paise")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId])
+  @@map("team_profiles")
+}
+
+// ============================================================================
+// SCHEDULED REPORTS & ALERTS
+// ============================================================================
+
+model ScheduledReport {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  ownerId      String   @map("owner_id")
+  templateId   String   @map("template_id")
+  cronExpr     String   @map("cron_expr")
+  recipientsJson Json   @map("recipients_json")
+  format       String   @default("pdf")
+  timezone     String   @default("Asia/Kolkata")
+  enabled      Boolean  @default(true)
+  lastSentAt   DateTime? @map("last_sent_at")
+  nextSendAt   DateTime? @map("next_send_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, enabled])
+  @@map("scheduled_reports")
+}
+
+model AnomalyRule {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  metricName   String   @map("metric_name")
+  conditionJson Json    @map("condition_json")
+  severity     String   @default("warning")
+  channelsJson Json     @map("channels_json")
+  enabled      Boolean  @default(true)
+  muteUntil    DateTime? @map("mute_until")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, enabled])
+  @@map("anomaly_rules")
+}
+
+// ============================================================================
+// MARKETPLACE
+// ============================================================================
+
+model MarketplaceListing {
+  id              String   @id @default(cuid())
+  tenantId        String   @map("tenant_id")
+  studioId        String   @map("studio_id")
+  isVisible       Boolean  @default(false) @map("is_visible")
+  locationGeog    String?  @map("location_geog") // PostGIS point
+  specialtiesJson Json     @map("specialties_json")
+  referralTermsJson Json   @map("referral_terms_json")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, isVisible])
+  @@map("marketplace_listings")
+}
+
+// ============================================================================
+// AGENT GOVERNANCE
+// ============================================================================
+
+model AgentTrace {
+  id              String   @id @default(cuid())
+  tenantId        String   @map("tenant_id")
+  conversationId  String   @map("conversation_id")
+  leadId          String   @map("lead_id")
+  toolName        String   @map("tool_name")
+  inputJson       Json     @map("input_json")
+  outputJson      Json     @map("output_json")
+  policyDecision  String   @map("policy_decision")
+  latencyMs       Int      @map("latency_ms")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, conversationId])
+  @@index([tenantId, leadId])
+  @@map("agent_traces")
+}
+
+model ConnectorHealth {
+  id              String   @id @default(cuid())
+  tenantId        String   @map("tenant_id")
+  provider        String
+  status          String
+  lastSuccessAt   DateTime? @map("last_success_at")
+  errorRate5m     Float    @map("error_rate_5m")
+  errorRate24h    Float    @map("error_rate_24h")
+  quotaRemaining  Int?     @map("quota_remaining")
+  detailsJson     Json?    @map("details_json")
+  checkedAt       DateTime @default(now()) @map("checked_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, provider])
+  @@map("connector_health")
+}
+
+// ============================================================================
+// PLAN ENTITLEMENTS
+// ============================================================================
+
+model PlanEntitlement {
+  id           String   @id @default(cuid())
+  planId       String   @map("plan_id")
+  version      Int
+  features     Json
+  quotas       Json
+  effectiveFrom DateTime @map("effective_from")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([planId, version])
+  @@map("plan_entitlements")
+}

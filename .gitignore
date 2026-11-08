@@ -1,0 +1,36 @@
+﻿# Ignore everything outside this folder
+/*
+# But track this folder's contents
+!/apps
+!/packages
+!/docker-compose.yml
+!/package.json
+!/README.md
+!/.env.example
+!/.gitignore
+
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build outputs
+.next
+dist
+build
+*.log
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
