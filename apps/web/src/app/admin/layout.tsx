@@ -1,4 +1,5 @@
-import { redirect } from 'next/navigation'
+'use client'
+
 import Link from 'next/link'
 import { LayoutDashboard, Users, Calendar, DollarSign, MessageSquare, Settings, BarChart3, LogOut, ChevronLeft, Menu, Bell, Search } from 'lucide-react'
 import { useState } from 'react'
