@@ -31,7 +31,7 @@ jobs:
       ENVIRONMENT: test
       DEBUG: "true"
       RUNGROW_WORKFORCE_HMAC_SECRET: test-rungrow-workforce-secret-32-bytes-minimum
-      RUNGROW_TENANT_MAP: '{"studio-external-001":"workforce-internal-001"}'
+      RUNGROW_WORKFORCE_TENANT_MAP: '{"studio-external-001":"workforce-internal-001"}'
     defaults:
       run:
         working-directory: apps/api
