@@ -1,7 +1,7 @@
 """PostgreSQL-backed idempotency claims shared by all workforce write routes."""
 from __future__ import annotations
 import hashlib, json, os
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from fastapi import HTTPException
