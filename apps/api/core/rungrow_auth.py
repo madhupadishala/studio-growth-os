@@ -7,7 +7,7 @@ import json
 import time
 from typing import Any
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 EXPECTED_PRODUCT_ID = "photo-studio-growth-os"
@@ -20,12 +20,15 @@ def verify_rungrow_request(headers: dict[str, str], body: bytes, secret: str,
     timestamp = headers.get("x-rungrow-timestamp", "")
     product_id = headers.get("x-rungrow-product-id", "")
     external_tenant_id = headers.get("x-rungrow-external-tenant-id", "")
-    workforce_tenant_id = headers.get("x-rungrow-org-id", "")
+    workforce_tenant_id = headers.get("x-rungrow-tenant-id", "")
+    scopes_header = headers.get("x-rungrow-scopes", "")
+    scopes = tuple(filter(None, scopes_header.split(",")))
+    canonical_scopes = ",".join(sorted(set(scopes)))
     correlation_id = headers.get("x-correlation-id", "")
 
     if not secret or len(secret.encode("utf-8")) < 32:
         raise HTTPException(status_code=503, detail="RunGrow service HMAC secret is not configured securely")
-    if not all((signature, timestamp, product_id, external_tenant_id, workforce_tenant_id)):
+    if not all((signature, timestamp, product_id, external_tenant_id, workforce_tenant_id)) or scopes_header != canonical_scopes:
         raise HTTPException(status_code=401, detail="Incomplete RunGrow service authentication headers")
     if product_id != EXPECTED_PRODUCT_ID:
         raise HTTPException(status_code=403, detail="RunGrow product binding mismatch")
@@ -40,8 +43,9 @@ def verify_rungrow_request(headers: dict[str, str], body: bytes, secret: str,
     if abs((time.time() if now is None else now) - issued) > 300:
         raise HTTPException(status_code=401, detail="RunGrow request timestamp outside 300-second replay window")
 
-    binding = ".".join((timestamp, external_tenant_id, workforce_tenant_id, product_id)).encode("utf-8")
-    expected = "sha256=" + hmac.new(secret.encode("utf-8"), binding + b"." + body, hashlib.sha256).hexdigest()
+    binding = ".".join((timestamp, product_id, workforce_tenant_id, external_tenant_id,
+                        canonical_scopes, hashlib.sha256(body).hexdigest())).encode("utf-8")
+    expected = "sha256=" + hmac.new(secret.encode("utf-8"), binding, hashlib.sha256).hexdigest()
     supplied = signature if signature.startswith("sha256=") else "sha256=" + signature
     if not hmac.compare_digest(expected, supplied):
         raise HTTPException(status_code=401, detail="Invalid RunGrow service signature")
@@ -50,6 +54,7 @@ def verify_rungrow_request(headers: dict[str, str], body: bytes, secret: str,
         "workforce_tenant_id": workforce_tenant_id,
         "product_id": product_id,
         "correlation_id": correlation_id or "rungrow-service",
+        "scopes": canonical_scopes.split(",") if canonical_scopes else [],
     }
 
 
@@ -154,3 +159,13 @@ def validate_production_service_config(settings_obj) -> None:
         raise RuntimeError("RUNGROW_WORKFORCE_TENANT_MAP must be valid JSON") from exc
     if not isinstance(mapping, dict):
         raise RuntimeError("RUNGROW_WORKFORCE_TENANT_MAP must be a JSON object")
+
+ 
+def require_workforce_scope(required_scope: str):
+    """FastAPI dependency enforcing the scope authenticated by the HMAC middleware."""
+    async def dependency(request: Request) -> dict[str, str]:
+        context = request.scope.get("state", {}).get("rungrow_service")
+        if not context or required_scope not in context.get("scopes", []):
+            raise HTTPException(status_code=403, detail=f"Missing required workforce scope: {required_scope}")
+        return context
+    return dependency
