@@ -6,7 +6,7 @@ import json
 import os
 import time
 from decimal import Decimal
-from typing import Any
+from typing import Any, Iterable
 import httpx
 
 EVENTS = {
@@ -18,22 +18,26 @@ REVENUE_EVENTS = {"invoice_recognised"}
 class RunGrowWebhookClient:
     def __init__(self, *, base_url: str | None = None, secret: str | None = None,
                  product_id: str = "photo-studio-growth-os", timeout: float = 10.0,
-                 transport: httpx.AsyncBaseTransport | None = None):
+                 transport: httpx.AsyncBaseTransport | None = None,
+                 scopes: Iterable[str] = ("photo-studio-growth-os:write",)):
         self.base_url = (base_url or os.getenv("RUNGROW_WORKFORCE_WEBHOOK_URL", "")).rstrip("/")
         self.secret = secret or os.getenv("RUNGROW_WORKFORCE_HMAC_SECRET", "")
         self.product_id = product_id
         self.timeout = timeout
         self.transport = transport
+        self.scopes = ",".join(sorted({scope.strip() for scope in scopes if scope.strip()}))
+        if not self.scopes:
+            raise ValueError("At least one RunGrow scope is required")
         if not self.base_url:
             raise RuntimeError("RUNGROW_WORKFORCE_WEBHOOK_URL is not configured")
         if len(self.secret.encode("utf-8")) < 32:
             raise RuntimeError("RUNGROW_WORKFORCE_HMAC_SECRET must contain at least 32 bytes")
 
     def _canonical(self, timestamp: str, internal_tenant_id: str,
-                   external_tenant_id: str, body: bytes) -> bytes:
+                   external_tenant_id: str, scopes: str, body: bytes) -> bytes:
         body_hash = hashlib.sha256(body).hexdigest()
         return ".".join((timestamp, self.product_id, internal_tenant_id,
-                         external_tenant_id, "", body_hash)).encode("utf-8")
+                         external_tenant_id, scopes, body_hash)).encode("utf-8")
 
     async def emit(self, *, event_type: str, event_id: str, external_tenant_id: str,
                    internal_tenant_id: str, correlation_id: str,
@@ -61,7 +65,7 @@ class RunGrowWebhookClient:
         }
         body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
         timestamp = str(int(time.time()))
-        binding = self._canonical(timestamp, internal_tenant_id, external_tenant_id, body)
+        binding = self._canonical(timestamp, internal_tenant_id, external_tenant_id, self.scopes, body)
         signature = "sha256=" + hmac.new(self.secret.encode("utf-8"), binding, hashlib.sha256).hexdigest()
         headers = {
             "X-RunGrow-Signature": signature,
@@ -69,6 +73,7 @@ class RunGrowWebhookClient:
             "X-RunGrow-Product-Id": self.product_id,
             "X-RunGrow-External-Tenant-Id": external_tenant_id,
             "X-RunGrow-Tenant-Id": internal_tenant_id,
+            "X-RunGrow-Scopes": self.scopes,
             "X-Correlation-ID": correlation_id,
             "Idempotency-Key": f"{self.product_id}:{event_id}",
             "Content-Type": "application/json",
