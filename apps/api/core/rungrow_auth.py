@@ -82,7 +82,7 @@ class RunGrowHMACAuthMiddleware:
             body_size += len(part)
             if body_size > MAX_SIGNED_BODY_BYTES:
                 response = HTTPException(status_code=413, detail="Signed service request body too large")
-                await self._send_error(response, send)
+                await self._send_error(response, scope, send)
                 return
             body_parts.append(part)
             more_body = message.get("more_body", False)
@@ -94,7 +94,7 @@ class RunGrowHMACAuthMiddleware:
                 tenant_mapping(),
             )
         except HTTPException as exc:
-            await self._send_error(exc, send)
+            await self._send_error(exc, scope, send)
             return
 
         state = scope.setdefault("state", {})
@@ -111,14 +111,11 @@ class RunGrowHMACAuthMiddleware:
         await self.app(scope, replay_receive, send)
 
     @staticmethod
-    async def _send_error(exc: HTTPException, send: Send) -> None:
+    async def _send_error(exc: HTTPException, scope: Scope, send: Send) -> None:
         from starlette.responses import JSONResponse
         response = JSONResponse({"detail": exc.detail}, status_code=exc.status_code,
                                  headers=exc.headers)
-        await response({"type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"},
-                        "method": "POST", "scheme": "https", "path": "/", "raw_path": b"/",
-                        "query_string": b"", "root_path": "", "headers": []},
-                       _empty_receive, send)
+        await response(scope, _empty_receive, send)
 
 
 async def _empty_receive() -> Message:
