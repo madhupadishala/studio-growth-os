@@ -325,6 +325,7 @@ async def test_workforce_routes_use_real_postgres_and_enforce_tenant_and_write_i
                 "idempotencyKey": f"handoff-{suffix}",
             }) == 1
 
+    await db.connect()
     await db.tenant.delete(where={"id": tenant.id})
     await db.tenant.delete(where={"id": other_tenant.id})
     await db.disconnect()
