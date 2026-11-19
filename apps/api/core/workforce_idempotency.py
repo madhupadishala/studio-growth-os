@@ -89,5 +89,5 @@ async def complete(
             "completedAt": datetime.now(timezone.utc),
         },
     )
-    if result.count < 1:
+    if result < 1:
         raise RuntimeError("Idempotency claim disappeared before completion")
