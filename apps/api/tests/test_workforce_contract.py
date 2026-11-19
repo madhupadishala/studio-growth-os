@@ -5,6 +5,7 @@ import time
 from unittest.mock import AsyncMock
 
 import pytest
+import httpx
 from fastapi import HTTPException
 from starlette.requests import Request
 
@@ -50,16 +51,12 @@ async def test_scope_dependency_denies_missing_scope():
 @pytest.mark.asyncio
 async def test_outbound_webhook_uses_shared_hmac_and_zeroes_non_revenue_events():
     captured = {}
-    class Response:
-        content = b'{"status":"accepted"}'
-        def raise_for_status(self): pass
-        def json(self): return {"status":"accepted"}
-    class Transport:
-        async def handle_async_request(self, request):
-            captured["request"] = request
-            return Response()
+    def handler(request):
+        captured["request"] = request
+        return httpx.Response(200, json={"status": "accepted"})
+    transport = httpx.MockTransport(handler)
     client = RunGrowWebhookClient(base_url="https://workforce.test/hooks", secret=SECRET,
-                                  transport=Transport())
+                                  transport=transport)
     await client.emit(event_type="trial_started", event_id="trial-001",
         external_tenant_id="studio-external-001", internal_tenant_id="workforce-internal-001",
         correlation_id="corr-test-001", occurred_at="2026-11-19T10:00:00+05:30",
