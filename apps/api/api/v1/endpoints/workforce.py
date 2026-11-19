@@ -6,7 +6,7 @@ import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from prisma import Prisma
+from prisma import Prisma, Json
 from core.database import get_db
 from core.rungrow_auth import require_workforce_scope
 from core.workforce_idempotency import claim, complete
@@ -165,9 +165,9 @@ async def prospect_handoff(payload: ProspectHandoffRequest, request: Request,
     lead = await db.lead.find_first(where={"tenantId": tenant, "contactId": payload.contact_id})
     provenance = {**payload.metadata, "source_url": payload.source_url,
                   "correlation_id": correlation, "approval_id": payload.approval_id}
-    data: dict[str, Any] = {"stage": "qualified", "reasonsJson": {"source": "rungrow"}, "sourceFirst": "rungrow",
+    data: dict[str, Any] = {"stage": "qualified", "reasonsJson": Json({"source": "rungrow"}), "sourceFirst": "rungrow",
                             "sourceLast": "rungrow", "campaign": payload.campaign,
-                            "utmJson": provenance}
+                            "utmJson": Json(provenance)}
     if payload.event_date:
         data["eventDate"] = payload.event_date
     if payload.budget_band:
