@@ -1,8 +1,8 @@
 """
 Studio Growth OS - Connector Endpoints
 """
-from typing import Optional
-from datetime import datetime, List
+from typing import Optional, List
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from prisma import Prisma
