@@ -94,7 +94,13 @@ async def test_fastapi_lifespan_connects_to_generated_prisma_client():
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from main import app
+    import importlib.util
+    api_root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("studio_api_main", api_root / "main.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    app = module.app
     from core.database import db
 
     async with app.router.lifespan_context(app):
