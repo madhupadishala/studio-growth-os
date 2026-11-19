@@ -87,3 +87,46 @@ async def test_outbound_webhook_uses_shared_hmac_and_zeroes_non_revenue_events()
         TENANT_MAP,
     )
     assert verified["scopes"] == ["photo-studio-growth-os:write"]
+
+
+@pytest.mark.asyncio
+async def test_fastapi_lifespan_connects_to_generated_prisma_client():
+    from main import app
+    from core.database import db
+
+    async with app.router.lifespan_context(app):
+        assert db.is_connected()
+        assert await db.query_raw("SELECT 1 AS ready") == [{"ready": 1}]
+    assert not db.is_connected()
+
+
+@pytest.mark.asyncio
+async def test_prisma_idempotency_persists_replay_and_payload_conflict():
+    from uuid import uuid4
+    from core.database import db
+    from core.workforce_idempotency import claim, complete
+
+    await db.connect()
+    tenant = "workforce-internal-001"
+    endpoint = "POST:/api/v1/workforce/test-idempotency"
+    key = f"ci-{uuid4()}"
+    payload = {"lead_id": "lead-ci-001", "action": "followup"}
+    first = await claim(tenant, endpoint, key, payload, "corr-ci-001")
+    assert first["created"] is True
+    response_body = {"status": "accepted", "lead_id": "lead-ci-001"}
+    await complete(tenant, endpoint, key, 200, response_body)
+
+    replay = await claim(tenant, endpoint, key, payload, "corr-ci-replay")
+    assert replay["created"] is False
+    assert replay["status_code"] == 200
+    assert replay["body"] == response_body
+
+    count = await db.workforceadapteridempotency.count(where={
+        "externalTenantId": tenant, "endpoint": endpoint, "idempotencyKey": key
+    })
+    assert count == 1
+
+    with pytest.raises(HTTPException) as exc:
+        await claim(tenant, endpoint, key, {"lead_id": "different"}, "corr-ci-conflict")
+    assert exc.value.status_code == 409
+    await db.disconnect()
