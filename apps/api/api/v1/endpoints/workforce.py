@@ -14,6 +14,8 @@ from core.workforce_idempotency import claim, complete
 router = APIRouter()
 READ = "photo-studio-growth-os:read"
 WRITE = "photo-studio-growth-os:write"
+AI_IDENTITY_DISCLOSURE = ("I am an AI assistant acting on behalf of RunGrow. I can help explain the product and "
+                         "arrange a human follow-up; I am not a human representative.")
 
 def _tenant(request: Request) -> str:
     context = request.scope.get("state", {}).get("rungrow_service")
@@ -100,8 +102,8 @@ async def lead_followup(lead_id: str, payload: FollowupRequest, request: Request
     tenant, correlation = _tenant(request), _correlation(request)
     if not idempotency_key:
         raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
-    if payload.ai_identity_disclosure.strip() == "":
-        raise HTTPException(status_code=422, detail="RunGrow AI identity disclosure is mandatory")
+    if payload.ai_identity_disclosure != AI_IDENTITY_DISCLOSURE:
+        raise HTTPException(status_code=422, detail="The approved RunGrow AI identity disclosure is mandatory")
     lead = await db.lead.find_first(where={"id": lead_id, "tenantId": tenant})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
