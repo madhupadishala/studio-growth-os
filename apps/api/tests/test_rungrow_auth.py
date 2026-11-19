@@ -16,14 +16,16 @@ WORKFORCE_TENANT = "rungrow-org-01"
 
 def signed_headers(body: bytes, *, timestamp: int | None = None, product_id=EXPECTED_PRODUCT_ID):
     issued = int(time.time()) if timestamp is None else timestamp
-    binding = ".".join((str(issued), EXTERNAL_TENANT, WORKFORCE_TENANT, product_id)).encode()
-    signature = "sha256=" + hmac.new(SECRET.encode(), binding + b"." + body, hashlib.sha256).hexdigest()
+    binding = ".".join((str(issued), product_id, WORKFORCE_TENANT, EXTERNAL_TENANT,
+                        "photo-studio-growth-os:read", hashlib.sha256(body).hexdigest())).encode()
+    signature = "sha256=" + hmac.new(SECRET.encode(), binding, hashlib.sha256).hexdigest()
     return {
         "x-rungrow-signature": signature,
         "x-rungrow-timestamp": str(issued),
         "x-rungrow-product-id": product_id,
         "x-rungrow-external-tenant-id": EXTERNAL_TENANT,
-        "x-rungrow-org-id": WORKFORCE_TENANT,
+        "x-rungrow-tenant-id": WORKFORCE_TENANT,
+        "x-rungrow-scopes": "photo-studio-growth-os:read",
         "x-correlation-id": "contract-test-001",
     }
 
@@ -63,7 +65,7 @@ def test_signature_rejects_unmapped_or_cross_bound_tenant():
         verify_rungrow_request(signed_headers(body), body, SECRET, {})
     assert unmapped.value.status_code == 403
     headers = signed_headers(body)
-    headers["x-rungrow-org-id"] = EXTERNAL_TENANT
+    headers["x-rungrow-tenant-id"] = EXTERNAL_TENANT
     with pytest.raises(HTTPException) as same_tenant:
         verify_rungrow_request(headers, body, SECRET, {EXTERNAL_TENANT: EXTERNAL_TENANT})
     assert same_tenant.value.status_code == 403
@@ -94,3 +96,12 @@ def test_production_service_configuration_fails_closed_without_hmac_secret():
     )
     with pytest.raises(RuntimeError, match="HMAC_SECRET"):
         validate_production_service_config(production)
+
+
+def test_signature_binds_canonical_workforce_scopes():
+    body = b'{"range":"30d"}'
+    headers = signed_headers(body)
+    headers["x-rungrow-scopes"] = "photo-studio-growth-os:write"
+    with pytest.raises(HTTPException) as error:
+        verify_rungrow_request(headers, body, SECRET, {EXTERNAL_TENANT: WORKFORCE_TENANT})
+    assert error.value.status_code == 401
