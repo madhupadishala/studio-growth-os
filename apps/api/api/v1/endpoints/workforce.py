@@ -175,7 +175,11 @@ async def prospect_handoff(payload: ProspectHandoffRequest, request: Request,
     if lead:
         saved = await db.lead.update(where={"id": lead.id}, data=data)
     else:
-        saved = await db.lead.create(data={"tenantId": tenant, "contactId": payload.contact_id, **data})
+        saved = await db.lead.create(data={
+            "tenant": {"connect": {"id": tenant}},
+            "contact": {"connect": {"id": payload.contact_id}},
+            **data,
+        })
     response = {"status":"accepted","lead_id":saved.id,"external_tenant_id":external_tenant,
                 "source_url":payload.source_url,"correlation_id":correlation,"approval_id":payload.approval_id}
     await complete(external_tenant, endpoint, idempotency_key, 200, response)
