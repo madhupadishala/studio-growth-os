@@ -3,16 +3,24 @@ Studio Growth OS - Leads Endpoints
 """
 from typing import Optional, List
 from datetime import datetime, timedelta
+from enum import Enum
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from pydantic import BaseModel, Field
 from prisma import Prisma
-from prisma.enums import LeadStage
 
 from core.database import get_db
 from core.logging import get_logger
 from api.v1.endpoints.auth import get_tenant_context
 
 logger = get_logger(__name__)
+
+
+class LeadStage(str, Enum):
+    new = "new"
+    contacted = "contacted"
+    qualified = "qualified"
+    converted = "converted"
+    lost = "lost"
 
 router = APIRouter()
 
