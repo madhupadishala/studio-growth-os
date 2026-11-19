@@ -5,7 +5,7 @@ import hmac
 import hashlib
 import json
 from typing import Optional
-from fastapi import APIRouter, Request, Depends, HTTPException, Header, BackgroundTasks
+from fastapi import APIRouter, Request, Depends, HTTPException, Header, BackgroundTasks, Query
 from pydantic import BaseModel
 from prisma import Prisma
 
