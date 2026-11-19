@@ -66,4 +66,24 @@ async def test_outbound_webhook_uses_shared_hmac_and_zeroes_non_revenue_events()
     assert payload["recognised_revenue_inr"] == 0
     assert request.headers["X-RunGrow-External-Tenant-Id"] == "studio-external-001"
     assert request.headers["X-RunGrow-Tenant-Id"] == "workforce-internal-001"
+    assert request.headers["X-RunGrow-Scopes"] == "photo-studio-growth-os:write"
     assert request.headers["Idempotency-Key"] == "photo-studio-growth-os:trial-001"
+
+    timestamp = request.headers["X-RunGrow-Timestamp"]
+    canonical = ".".join((
+        timestamp,
+        "photo-studio-growth-os",
+        "workforce-internal-001",
+        "studio-external-001",
+        "photo-studio-growth-os:write",
+        hashlib.sha256(request.content).hexdigest(),
+    )).encode()
+    expected = "sha256=" + hmac.new(SECRET.encode(), canonical, hashlib.sha256).hexdigest()
+    assert hmac.compare_digest(request.headers["X-RunGrow-Signature"], expected)
+    verified = verify_rungrow_request(
+        {key.lower(): value for key, value in request.headers.items()},
+        request.content,
+        SECRET,
+        TENANT_MAP,
+    )
+    assert verified["scopes"] == ["photo-studio-growth-os:write"]
