@@ -19,6 +19,12 @@ AI_IDENTITY_DISCLOSURE = ("I am an AI assistant acting on behalf of RunGrow. I c
 
 def _tenant(request: Request) -> str:
     context = request.scope.get("state", {}).get("rungrow_service")
+    if not context or not context.get("external_tenant_id") or not context.get("workforce_tenant_id"):
+        raise HTTPException(status_code=403, detail="Authenticated external tenant context is required")
+    return context["workforce_tenant_id"]
+
+def _external_tenant(request: Request) -> str:
+    context = request.scope.get("state", {}).get("rungrow_service")
     if not context or not context.get("external_tenant_id"):
         raise HTTPException(status_code=403, detail="Authenticated external tenant context is required")
     return context["external_tenant_id"]
@@ -34,7 +40,7 @@ async def tenant_summary(request: Request, db: Prisma = Depends(get_db)):
     quote_count = await db.quote.count(where=where)
     booking_count = await db.booking.count(where=where)
     conversation_count = await db.conversation.count(where=where)
-    return {"external_tenant_id": tenant, "lead_count": lead_count, "quote_count": quote_count,
+    return {"external_tenant_id": _external_tenant(request), "lead_count": lead_count, "quote_count": quote_count,
             "booking_count": booking_count, "conversation_count": conversation_count}
 
 @router.get("/leads", dependencies=[Depends(require_workforce_scope(READ))])
@@ -99,7 +105,7 @@ class FollowupRequest(BaseModel):
 async def lead_followup(lead_id: str, payload: FollowupRequest, request: Request,
                         idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
                         db: Prisma = Depends(get_db)):
-    tenant, correlation = _tenant(request), _correlation(request)
+    tenant, external_tenant, correlation = _tenant(request), _external_tenant(request), _correlation(request)
     if not idempotency_key:
         raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
     if payload.ai_identity_disclosure != AI_IDENTITY_DISCLOSURE:
@@ -109,7 +115,7 @@ async def lead_followup(lead_id: str, payload: FollowupRequest, request: Request
         raise HTTPException(status_code=404, detail="Lead not found")
     body = payload.model_dump()
     endpoint = f"POST:/api/v1/workforce/leads/{lead_id}/followup"
-    claim_result = await claim(tenant, endpoint, idempotency_key, body, correlation)
+    claim_result = await claim(external_tenant, endpoint, idempotency_key, body, correlation)
     if not claim_result["created"]:
         return JSONResponse(status_code=claim_result["status_code"], content=claim_result["body"])
     if payload.dry_run:
@@ -131,7 +137,7 @@ async def lead_followup(lead_id: str, payload: FollowupRequest, request: Request
                     "correlation_id":correlation}
     else:
         raise HTTPException(status_code=503, detail=f"{payload.channel} provider is not configured")
-    await complete(tenant, endpoint, idempotency_key, 200, response)
+    await complete(external_tenant, endpoint, idempotency_key, 200, response)
     return response
 
 class ProspectHandoffRequest(BaseModel):
@@ -148,7 +154,7 @@ class ProspectHandoffRequest(BaseModel):
 async def prospect_handoff(payload: ProspectHandoffRequest, request: Request,
                            idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
                            db: Prisma = Depends(get_db)):
-    tenant, correlation = _tenant(request), payload.correlation_id or _correlation(request)
+    tenant, external_tenant, correlation = _tenant(request), _external_tenant(request), payload.correlation_id or _correlation(request)
     if not idempotency_key:
         raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
     body = payload.model_dump()
@@ -159,7 +165,7 @@ async def prospect_handoff(payload: ProspectHandoffRequest, request: Request,
     lead = await db.lead.find_first(where={"tenantId": tenant, "contactId": payload.contact_id})
     provenance = {**payload.metadata, "source_url": payload.source_url,
                   "correlation_id": correlation, "approval_id": payload.approval_id}
-    data: dict[str, Any] = {"stage": "qualified", "sourceFirst": "rungrow",
+    data: dict[str, Any] = {"stage": "qualified", "reasonsJson": {"source": "rungrow"}, "sourceFirst": "rungrow",
                             "sourceLast": "rungrow", "campaign": payload.campaign,
                             "utmJson": provenance}
     if payload.event_date:
@@ -170,7 +176,7 @@ async def prospect_handoff(payload: ProspectHandoffRequest, request: Request,
         saved = await db.lead.update(where={"id": lead.id}, data=data)
     else:
         saved = await db.lead.create(data={"tenantId": tenant, "contactId": payload.contact_id, **data})
-    response = {"status":"accepted","lead_id":saved.id,"external_tenant_id":tenant,
+    response = {"status":"accepted","lead_id":saved.id,"external_tenant_id":external_tenant,
                 "source_url":payload.source_url,"correlation_id":correlation,"approval_id":payload.approval_id}
     await complete(tenant, endpoint, idempotency_key, 200, response)
     return response
