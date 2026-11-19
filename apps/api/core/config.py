@@ -2,6 +2,7 @@
 Studio Growth OS - Core Configuration
 """
 from functools import lru_cache
+import json
 from typing import List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -30,6 +31,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "dev-secret-change-in-production"
     JWT_SECRET: str = "dev-jwt-secret-change-in-production"
     JWT_ALGORITHM: str = "HS256"
+
+    # RunGrow Workforce service-to-service contract
+    RUNGROW_WORKFORCE_HMAC_SECRET: str = ""
+    RUNGROW_WORKFORCE_TENANT_MAP: str = "{}"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 

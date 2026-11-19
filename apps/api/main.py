@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from core.config import settings
 from core.database import prisma
 from core.logging import setup_logging
+from core.rungrow_auth import RunGrowHMACAuthMiddleware, validate_production_service_config
 from api.v1.router import api_router
 from workers.main import start_workers, stop_workers
 
@@ -18,6 +19,7 @@ from workers.main import start_workers, stop_workers
 async def lifespan(app: FastAPI):
     # Startup
     setup_logging()
+    validate_production_service_config(settings)
     await prisma.connect()
     await start_workers()
     yield
@@ -34,6 +36,9 @@ app = FastAPI(
     docs_url="/docs" if settings.ENVIRONMENT != "production" else None,
     redoc_url="/redoc" if settings.ENVIRONMENT != "production" else None,
 )
+
+# Service-to-service Workforce adapter authentication
+app.add_middleware(RunGrowHMACAuthMiddleware)
 
 # CORS
 app.add_middleware(
