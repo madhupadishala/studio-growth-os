@@ -3,7 +3,7 @@
 // ============================================================================
 
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client-py"
 }
 
 datasource db {
@@ -836,4 +836,25 @@ model PlanEntitlement {
 
   @@unique([planId, version])
   @@map("plan_entitlements")
+}
+
+// ============================================================================
+// RunGrow Workforce adapter idempotency
+// ============================================================================
+model WorkforceAdapterIdempotency {
+  id                String    @id @default(uuid()) @db.Uuid
+  externalTenantId  String    @map("external_tenant_id")
+  endpoint          String
+  idempotencyKey    String    @map("idempotency_key")
+  requestHash       String    @map("request_hash") @db.Char(64)
+  status            String
+  responseStatusCode Int?     @map("response_status_code")
+  responseBodyJson  Json?     @map("response_body_json")
+  correlationId     String    @map("correlation_id")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz(6)
+
+  @@unique([externalTenantId, endpoint, idempotencyKey], map: "uq_workforce_adapter_idempotency")
+  @@index([createdAt], map: "ix_workforce_adapter_idempotency_created_at")
+  @@map("workforce_adapter_idempotency")
 }
