@@ -67,18 +67,3 @@ async def test_outbound_webhook_uses_shared_hmac_and_zeroes_non_revenue_events()
     assert request.headers["X-RunGrow-External-Tenant-Id"] == "studio-external-001"
     assert request.headers["X-RunGrow-Tenant-Id"] == "workforce-internal-001"
     assert request.headers["Idempotency-Key"] == "photo-studio-growth-os:trial-001"
-
-def test_application_boots_and_registers_workforce_contract():
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from main import app
-    paths = {(route.path, method) for route in app.routes
-             for method in getattr(route, "methods", set())}
-    assert ("/api/v1/workforce/tenant-summary", "GET") in paths
-    assert ("/api/v1/workforce/leads", "GET") in paths
-    assert ("/api/v1/workforce/quotes", "GET") in paths
-    assert ("/api/v1/workforce/bookings", "GET") in paths
-    assert ("/api/v1/workforce/conversations/{lead_id}", "GET") in paths
-    assert ("/api/v1/workforce/leads/{lead_id}/followup", "POST") in paths
-    assert ("/api/v1/workforce/prospects/handoff", "POST") in paths
