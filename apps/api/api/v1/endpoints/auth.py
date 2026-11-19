@@ -209,10 +209,11 @@ service_bearer = HTTPBearer(auto_error=False)
 
 
 async def get_optional_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(service_bearer),
     db: Prisma = Depends(get_db),
 ) -> dict | None:
-    if credentials is None:
+    if getattr(request.state, "rungrow_service", None) is not None or credentials is None:
         return None
     return await get_current_user(token=credentials.credentials, db=db)
 

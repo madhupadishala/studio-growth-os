@@ -5,7 +5,8 @@ import time
 import pytest
 from fastapi import HTTPException
 
-from core.rungrow_auth import EXPECTED_PRODUCT_ID, verify_rungrow_request
+from core.rungrow_auth import EXPECTED_PRODUCT_ID, verify_rungrow_request, validate_production_service_config
+from types import SimpleNamespace
 
 
 SECRET = "test-rungrow-workforce-secret-32-bytes"
@@ -79,3 +80,17 @@ def test_signature_requires_strong_shared_secret_and_all_headers():
     with pytest.raises(HTTPException) as missing:
         verify_rungrow_request(headers, body, SECRET, {EXTERNAL_TENANT: WORKFORCE_TENANT})
     assert missing.value.status_code == 401
+
+
+
+def test_production_service_configuration_fails_closed_without_hmac_secret():
+    production = SimpleNamespace(
+        ENVIRONMENT="production",
+        DATABASE_URL="postgresql://studio:secret@db.example.com/studio",
+        SECRET_KEY="strong-secret-value-that-is-at-least-32-bytes",
+        JWT_SECRET="strong-jwt-secret-value-that-is-at-least-32-bytes",
+        RUNGROW_WORKFORCE_HMAC_SECRET="",
+        RUNGROW_WORKFORCE_TENANT_MAP="{}",
+    )
+    with pytest.raises(RuntimeError, match="HMAC_SECRET"):
+        validate_production_service_config(production)

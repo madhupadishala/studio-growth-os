@@ -6,7 +6,6 @@ import hmac
 import json
 import time
 from typing import Any
-from urllib.parse import urlsplit
 
 from fastapi import HTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
