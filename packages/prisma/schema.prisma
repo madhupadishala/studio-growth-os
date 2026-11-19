@@ -30,7 +30,6 @@ model Tenant {
   contacts      Contact[]
   leads         Lead[]
   inboundEvents InboundEvent[]
-  conversations Conversation[]
   packages      ServicePackage[]
   pricingRules  PricingRule[]
   quotes        Quote[]
@@ -52,7 +51,6 @@ model Tenant {
   scheduledReports ScheduledReport[]
   anomalyRules  AnomalyRule[]
   marketplaceListings MarketplaceListing[]
-  benchmarkAggregates BenchmarkAggregate[]
   agentTraces   AgentTrace[]
   connectorHealth ConnectorHealth[]
   predictiveScores PredictiveScore[]
@@ -86,7 +84,6 @@ model User {
   memberships Membership[]
   ownedLeads  Lead[]      @relation("LeadOwner")
   approvedQuotes Quote[] @relation("QuoteApprover")
-  confirmedBookings Booking[] @relation("BookingConfirmer")
   teamProfiles TeamProfile[]
 
   @@map("users")
@@ -125,7 +122,7 @@ model Contact {
 
   tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   leads         Lead[]
-  conversations Conversation[]
+  bookings      Booking[]
 
   @@unique([tenantId, phoneE164])
   @@unique([tenantId, emailNormalized])
@@ -159,6 +156,7 @@ model Lead {
   messages     Message[]
   attributionEvents AttributionEvent[]
   predictiveScores PredictiveScore[]
+  slotHolds SlotHold[]
 
   @@index([tenantId, stage])
   @@index([tenantId, ownerId])
@@ -211,6 +209,7 @@ model Conversation {
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  contact Contact? @relation(fields: [contactId], references: [id])
   messages Message[]
 
   @@index([tenantId, leadId])
@@ -264,7 +263,6 @@ model ServicePackage {
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  quotes     Quote[]
   quoteItems QuoteItem[]
 
   @@unique([tenantId, slug])
@@ -374,7 +372,6 @@ model Booking {
   startsAt     DateTime @map("starts_at")
   endsAt       DateTime @map("ends_at")
   state        String   @default("hold")
-  paymentId    String?  @map("payment_id")
   confirmedBy  String?  @map("confirmed_by")
   confirmedAt  DateTime? @map("confirmed_at")
   createdAt    DateTime @default(now()) @map("created_at")
@@ -384,7 +381,8 @@ model Booking {
   resource  Resource  @relation(fields: [resourceId], references: [id], onDelete: Cascade)
   customer  Contact   @relation(fields: [customerId], references: [id], onDelete: Cascade)
   quote     Quote?    @relation(fields: [quoteId], references: [id])
-  payment   Payment?  @relation(fields: [paymentId], references: [id])
+  confirmer User?    @relation("BookingConfirmer", fields: [confirmedBy], references: [id])
+  payments  Payment[]
 
   @@index([tenantId, resourceId, startsAt, endsAt])
   @@index([tenantId, state])
