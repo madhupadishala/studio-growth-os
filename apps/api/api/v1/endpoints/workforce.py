@@ -91,7 +91,7 @@ async def workforce_conversation(lead_id: str, request: Request, db: Prisma = De
         raise HTTPException(status_code=404, detail="Lead not found")
     rows = await db.conversation.find_many(
         where={"leadId": lead_id, "tenantId": tenant}, order={"createdAt": "asc"})
-    return {"lead_id": lead_id, "external_tenant_id": tenant, "messages": rows}
+    return {"lead_id": lead_id, "external_tenant_id": _external_tenant(request), "messages": rows}
 
 class FollowupRequest(BaseModel):
     channel: str = "whatsapp"
@@ -159,7 +159,7 @@ async def prospect_handoff(payload: ProspectHandoffRequest, request: Request,
         raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
     body = payload.model_dump()
     endpoint = "POST:/api/v1/workforce/prospects/handoff"
-    claim_result = await claim(tenant, endpoint, idempotency_key, body, correlation)
+    claim_result = await claim(external_tenant, endpoint, idempotency_key, body, correlation)
     if not claim_result["created"]:
         return JSONResponse(status_code=claim_result["status_code"], content=claim_result["body"])
     lead = await db.lead.find_first(where={"tenantId": tenant, "contactId": payload.contact_id})
@@ -178,5 +178,5 @@ async def prospect_handoff(payload: ProspectHandoffRequest, request: Request,
         saved = await db.lead.create(data={"tenantId": tenant, "contactId": payload.contact_id, **data})
     response = {"status":"accepted","lead_id":saved.id,"external_tenant_id":external_tenant,
                 "source_url":payload.source_url,"correlation_id":correlation,"approval_id":payload.approval_id}
-    await complete(tenant, endpoint, idempotency_key, 200, response)
+    await complete(external_tenant, endpoint, idempotency_key, 200, response)
     return response
