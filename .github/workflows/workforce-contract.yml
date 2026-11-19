@@ -5,17 +5,41 @@ on:
   push:
     branches: [feat/rungrow-workforce-adapter-v1]
   workflow_dispatch:
+
 permissions:
   contents: read
-  pull-requests: read
+
 jobs:
   api-contract:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: studio_growth_os_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d studio_growth_os_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/studio_growth_os_test
+      ENVIRONMENT: test
+      DEBUG: "true"
+      RUNGROW_WORKFORCE_HMAC_SECRET: test-rungrow-workforce-secret-32-bytes-minimum
+      RUNGROW_TENANT_MAP: '{"studio-external-001":"workforce-internal-001"}'
     defaults:
       run:
         working-directory: apps/api
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -23,4 +47,11 @@ jobs:
           cache-dependency-path: apps/api/pyproject.toml
       - run: python -m pip install --upgrade pip
       - run: pip install -e . pytest pytest-asyncio httpx email-validator
-      - run: pytest -q --junitxml=workforce-contract-results.xml
+      - name: Generate native Prisma Python client
+        run: prisma generate --schema ../../packages/prisma/schema.prisma
+      - name: Push complete Prisma schema to PostgreSQL
+        run: prisma db push --schema ../../packages/prisma/schema.prisma --accept-data-loss
+      - name: Verify generated Prisma schema
+        run: prisma validate --schema ../../packages/prisma/schema.prisma
+      - name: Run API and PostgreSQL contract tests
+        run: pytest -v tests --strict-markers --junitxml=workforce-contract-results.xml
