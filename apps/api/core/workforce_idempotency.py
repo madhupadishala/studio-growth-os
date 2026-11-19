@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
@@ -84,8 +85,8 @@ async def complete(
             "status": "COMPLETED",
             "responseStatusCode": status_code,
             "responseBodyJson": body,
-            "completedAt": __import__("datetime").datetime.now(__import__("datetime").timezone.utc),
+            "completedAt": datetime.now(timezone.utc),
         },
     )
-    if result < 1:
+    if result.count < 1:
         raise RuntimeError("Idempotency claim disappeared before completion")
