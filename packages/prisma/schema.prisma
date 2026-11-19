@@ -30,6 +30,8 @@ model Tenant {
   contacts      Contact[]
   leads         Lead[]
   inboundEvents InboundEvent[]
+  conversations Conversation[]
+  messages Message[]
   packages      ServicePackage[]
   pricingRules  PricingRule[]
   quotes        Quote[]
@@ -84,6 +86,7 @@ model User {
   memberships Membership[]
   ownedLeads  Lead[]      @relation("LeadOwner")
   approvedQuotes Quote[] @relation("QuoteApprover")
+  confirmedBookings Booking[] @relation("BookingConfirmer")
   teamProfiles TeamProfile[]
 
   @@map("users")
@@ -209,7 +212,6 @@ model Conversation {
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  contact Contact? @relation(fields: [contactId], references: [id])
   messages Message[]
 
   @@index([tenantId, leadId])
