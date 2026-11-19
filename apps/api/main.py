@@ -20,12 +20,14 @@ async def lifespan(app: FastAPI):
     # Startup
     setup_logging()
     validate_production_service_config(settings)
-    await prisma.connect()
+    if not prisma.is_connected():
+        await prisma.connect()
     await start_workers()
     yield
     # Shutdown
     await stop_workers()
-    await prisma.disconnect()
+    if prisma.is_connected():
+        await prisma.disconnect()
 
 
 app = FastAPI(
