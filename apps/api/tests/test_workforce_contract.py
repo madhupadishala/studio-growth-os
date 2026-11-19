@@ -139,3 +139,192 @@ async def test_prisma_idempotency_persists_replay_and_payload_conflict():
         await claim(tenant, endpoint, key, {"lead_id": "different"}, "corr-ci-conflict")
     assert exc.value.status_code == 409
     await db.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_workforce_routes_use_real_postgres_and_enforce_tenant_and_write_idempotency():
+    import importlib.util
+    import sys
+    from datetime import datetime, timedelta, timezone
+    from pathlib import Path
+    from uuid import uuid4
+
+    from httpx import ASGITransport, AsyncClient
+    from core.database import db
+
+    api_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(api_root))
+    spec = importlib.util.spec_from_file_location("studio_api_workforce_integration", api_root / "main.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    from api.v1.endpoints.workforce import AI_IDENTITY_DISCLOSURE
+
+    internal_tenant = "workforce-internal-001"
+    external_tenant = "studio-external-001"
+    suffix = str(uuid4())
+    await db.connect()
+
+    tenant = await db.tenant.create(data={
+        "id": internal_tenant, "slug": f"ci-workforce-{suffix}",
+        "name": "Workforce CI Tenant", "planId": "test",
+        "brandConfig": {"theme": "test"},
+    })
+    other_tenant = await db.tenant.create(data={
+        "id": f"workforce-other-{suffix}", "slug": f"ci-other-{suffix}",
+        "name": "Other Tenant", "planId": "test", "brandConfig": {},
+    })
+    contact = await db.contact.create(data={
+        "tenantId": tenant.id, "displayName": "Primary Contact",
+        "sourceFirst": "test", "sourceLast": "test",
+    })
+    other_contact = await db.contact.create(data={
+        "tenantId": other_tenant.id, "displayName": "Other Contact",
+        "sourceFirst": "test", "sourceLast": "test",
+    })
+    lead = await db.lead.create(data={
+        "tenantId": tenant.id, "contactId": contact.id, "stage": "new",
+        "score": 10, "reasonsJson": {}, "sourceFirst": "test", "sourceLast": "test",
+    })
+    other_lead = await db.lead.create(data={
+        "tenantId": other_tenant.id, "contactId": other_contact.id, "stage": "new",
+        "score": 5, "reasonsJson": {}, "sourceFirst": "test", "sourceLast": "test",
+    })
+    quote = await db.quote.create(data={
+        "tenantId": tenant.id, "leadId": lead.id, "pricebookVersion": 1,
+        "totalsJson": {"total": 1000},
+        "expiresAt": datetime.now(timezone.utc) + timedelta(days=7),
+    })
+    resource = await db.resource.create(data={
+        "tenantId": tenant.id, "name": "CI Photographer", "type": "photographer",
+    })
+    await db.booking.create(data={
+        "tenantId": tenant.id, "resourceId": resource.id, "customerId": contact.id,
+        "quoteId": quote.id, "startsAt": datetime.now(timezone.utc) + timedelta(days=2),
+        "endsAt": datetime.now(timezone.utc) + timedelta(days=2, hours=2),
+    })
+    await db.conversation.create(data={
+        "tenantId": tenant.id, "leadId": lead.id, "channel": "whatsapp",
+    })
+
+    async with module.app.router.lifespan_context(module.app):
+        async with AsyncClient(transport=ASGITransport(app=module.app), base_url="http://test") as client:
+            read_headers = _signed_headers(b"", "photo-studio-growth-os:read")
+            summary = await client.get("/api/v1/workforce/tenant-summary", headers=read_headers)
+            assert summary.status_code == 200
+            assert summary.json()["external_tenant_id"] == external_tenant
+            assert summary.json()["lead_count"] == 1
+            assert summary.json()["quote_count"] == 1
+            assert summary.json()["booking_count"] == 1
+            assert summary.json()["conversation_count"] == 1
+
+            leads = await client.get("/api/v1/workforce/leads", headers=read_headers)
+            assert leads.status_code == 200
+            assert [row["id"] for row in leads.json()["leads"]] == [lead.id]
+
+            quotes = await client.get("/api/v1/workforce/quotes", headers=read_headers)
+            assert quotes.status_code == 200
+            assert [row["id"] for row in quotes.json()] == [quote.id]
+
+            bookings = await client.get("/api/v1/workforce/bookings", headers=read_headers)
+            assert bookings.status_code == 200
+            assert len(bookings.json()) == 1
+
+            conversations = await client.get(
+                f"/api/v1/workforce/conversations/{lead.id}", headers=read_headers
+            )
+            assert conversations.status_code == 200
+            assert conversations.json()["external_tenant_id"] == external_tenant
+
+            followup_payload = {
+                "channel": "whatsapp", "message": "Your studio follow-up",
+                "quote_id": quote.id, "template_vars": {},
+                "ai_identity_disclosure": AI_IDENTITY_DISCLOSURE, "dry_run": True,
+            }
+            followup_body = json.dumps(
+                followup_payload, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+            followup_headers = _signed_headers(
+                followup_body, "photo-studio-growth-os:write"
+            )
+            followup_headers["Idempotency-Key"] = f"followup-{suffix}"
+            first_followup = await client.post(
+                f"/api/v1/workforce/leads/{lead.id}/followup",
+                content=followup_body, headers=followup_headers,
+            )
+            replay_followup = await client.post(
+                f"/api/v1/workforce/leads/{lead.id}/followup",
+                content=followup_body, headers=followup_headers,
+            )
+            assert first_followup.status_code == replay_followup.status_code == 200
+            assert first_followup.json() == replay_followup.json()
+            changed_followup = dict(followup_payload, message="altered payload")
+            changed_body = json.dumps(
+                changed_followup, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+            changed_headers = _signed_headers(
+                changed_body, "photo-studio-growth-os:write"
+            )
+            changed_headers["Idempotency-Key"] = f"followup-{suffix}"
+            conflict_followup = await client.post(
+                f"/api/v1/workforce/leads/{lead.id}/followup",
+                content=changed_body, headers=changed_headers,
+            )
+            assert conflict_followup.status_code == 409
+
+            new_contact = await db.contact.create(data={
+                "tenantId": tenant.id, "displayName": "RunGrow Prospect",
+                "sourceFirst": "rungrow", "sourceLast": "rungrow",
+            })
+            handoff_payload = {
+                "contact_id": new_contact.id, "source_url": "https://rungrow.test/prospect/1",
+                "approval_id": "approval-ci-001", "campaign": "ci-campaign",
+                "metadata": {"source": "ci"},
+            }
+            handoff_body = json.dumps(
+                handoff_payload, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+            handoff_headers = _signed_headers(
+                handoff_body, "photo-studio-growth-os:write"
+            )
+            handoff_headers["Idempotency-Key"] = f"handoff-{suffix}"
+            before = await db.lead.count(where={"tenantId": tenant.id})
+            first_handoff = await client.post(
+                "/api/v1/workforce/prospects/handoff",
+                content=handoff_body, headers=handoff_headers,
+            )
+            replay_handoff = await client.post(
+                "/api/v1/workforce/prospects/handoff",
+                content=handoff_body, headers=handoff_headers,
+            )
+            assert first_handoff.status_code == replay_handoff.status_code == 200
+            assert first_handoff.json() == replay_handoff.json()
+            after = await db.lead.count(where={"tenantId": tenant.id})
+            assert after == before + 1
+
+            changed_handoff = dict(handoff_payload, campaign="changed")
+            changed_handoff_body = json.dumps(
+                changed_handoff, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+            changed_handoff_headers = _signed_headers(
+                changed_handoff_body, "photo-studio-growth-os:write"
+            )
+            changed_handoff_headers["Idempotency-Key"] = f"handoff-{suffix}"
+            conflict_handoff = await client.post(
+                "/api/v1/workforce/prospects/handoff",
+                content=changed_handoff_body, headers=changed_handoff_headers,
+            )
+            assert conflict_handoff.status_code == 409
+
+            assert await db.workforceadapteridempotency.count(where={
+                "externalTenantId": external_tenant,
+                "idempotencyKey": f"followup-{suffix}",
+            }) == 1
+            assert await db.workforceadapteridempotency.count(where={
+                "externalTenantId": external_tenant,
+                "idempotencyKey": f"handoff-{suffix}",
+            }) == 1
+
+    await db.tenant.delete(where={"id": tenant.id})
+    await db.tenant.delete(where={"id": other_tenant.id})
+    await db.disconnect()
