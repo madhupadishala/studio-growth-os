@@ -16,6 +16,7 @@ from api.v1.endpoints import (
     payments,
     media,
     settings as settings_ep,
+    workforce,
 )
 
 api_router = APIRouter()
@@ -35,3 +36,5 @@ api_router.include_router(agent.router, prefix="/agent", tags=["AI Agent"])
 api_router.include_router(payments.router, prefix="/payments", tags=["Payments"])
 api_router.include_router(media.router, prefix="/media", tags=["Media"])
 api_router.include_router(settings_ep.router, prefix="/settings", tags=["Settings"])
+# Signed RunGrow service-to-service Workforce contract
+api_router.include_router(workforce.router, prefix="/workforce", tags=["RunGrow Workforce"])
