@@ -189,7 +189,7 @@ async def test_workforce_routes_use_real_postgres_and_enforce_tenant_and_write_i
     })
     other_lead = await db.lead.create(data={
         "tenantId": other_tenant.id, "contactId": other_contact.id, "stage": "new",
-        "score": 5, "reasonsJson": {}, "sourceFirst": "test", "sourceLast": "test",
+        "score": 5, "reasonsJson": Json({}), "sourceFirst": "test", "sourceLast": "test",
     })
     quote = await db.quote.create(data={
         "tenantId": tenant.id, "leadId": lead.id, "pricebookVersion": 1,
