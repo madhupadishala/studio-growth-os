@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
+from prisma import Json
 
 from core.database import db
 
@@ -84,7 +85,7 @@ async def complete(
         data={
             "status": "COMPLETED",
             "responseStatusCode": status_code,
-            "responseBodyJson": body,
+            "responseBodyJson": Json(body),
             "completedAt": datetime.now(timezone.utc),
         },
     )
