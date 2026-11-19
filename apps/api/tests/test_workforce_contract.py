@@ -91,6 +91,9 @@ async def test_outbound_webhook_uses_shared_hmac_and_zeroes_non_revenue_events()
 
 @pytest.mark.asyncio
 async def test_fastapi_lifespan_connects_to_generated_prisma_client():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from main import app
     from core.database import db
 
