@@ -151,6 +151,7 @@ async def test_workforce_routes_use_real_postgres_and_enforce_tenant_and_write_i
 
     from httpx import ASGITransport, AsyncClient
     from core.database import db
+    from prisma import Json
 
     api_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(api_root))
@@ -168,11 +169,11 @@ async def test_workforce_routes_use_real_postgres_and_enforce_tenant_and_write_i
     tenant = await db.tenant.create(data={
         "id": internal_tenant, "slug": f"ci-workforce-{suffix}",
         "name": "Workforce CI Tenant", "planId": "test",
-        "brandConfig": {"theme": "test"},
+        "brandConfig": Json({"theme": "test"}),
     })
     other_tenant = await db.tenant.create(data={
         "id": f"workforce-other-{suffix}", "slug": f"ci-other-{suffix}",
-        "name": "Other Tenant", "planId": "test", "brandConfig": {},
+        "name": "Other Tenant", "planId": "test", "brandConfig": Json({}),
     })
     contact = await db.contact.create(data={
         "tenantId": tenant.id, "displayName": "Primary Contact",
@@ -184,7 +185,7 @@ async def test_workforce_routes_use_real_postgres_and_enforce_tenant_and_write_i
     })
     lead = await db.lead.create(data={
         "tenantId": tenant.id, "contactId": contact.id, "stage": "new",
-        "score": 10, "reasonsJson": {}, "sourceFirst": "test", "sourceLast": "test",
+        "score": 10, "reasonsJson": Json({}), "sourceFirst": "test", "sourceLast": "test",
     })
     other_lead = await db.lead.create(data={
         "tenantId": other_tenant.id, "contactId": other_contact.id, "stage": "new",
@@ -192,7 +193,7 @@ async def test_workforce_routes_use_real_postgres_and_enforce_tenant_and_write_i
     })
     quote = await db.quote.create(data={
         "tenantId": tenant.id, "leadId": lead.id, "pricebookVersion": 1,
-        "totalsJson": {"total": 1000},
+        "totalsJson": Json({"total": 1000}),
         "expiresAt": datetime.now(timezone.utc) + timedelta(days=7),
     })
     resource = await db.resource.create(data={
