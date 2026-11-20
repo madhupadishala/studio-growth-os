@@ -2,7 +2,8 @@
 Studio Growth OS - Authentication Endpoints
 """
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 from jose import jwt, JWTError
@@ -204,8 +205,40 @@ async def logout():
     return {"message": "Successfully logged out"}
 
 # Dependency for tenant-scoped endpoints
-async def get_tenant_context(current_user: dict = Depends(get_current_user)) -> dict:
-    """Extract tenant context for scoped operations"""
+service_bearer = HTTPBearer(auto_error=False)
+
+
+async def get_optional_current_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(service_bearer),
+    db: Prisma = Depends(get_db),
+) -> dict | None:
+    if getattr(request.state, "rungrow_service", None) is not None or credentials is None:
+        return None
+    return await get_current_user(token=credentials.credentials, db=db)
+
+
+async def get_tenant_context(
+    request: Request,
+    current_user: dict | None = Depends(get_optional_current_user),
+    db: Prisma = Depends(get_db),
+) -> dict:
+    """Resolve either a signed RunGrow service identity or an active user membership."""
+    service = getattr(request.state, "rungrow_service", None)
+    if service:
+        tenant_id = service["external_tenant_id"]
+        tenant = await db.tenant.find_unique(where={"id": tenant_id})
+        if tenant is None or tenant.status != "active":
+            raise HTTPException(status_code=403, detail="RunGrow service tenant is not active")
+        return {
+            "tenant_id": tenant_id,
+            "user_id": "rungrow-workforce:" + service["workforce_tenant_id"],
+            "role": "rungrow.service",
+            "service_product_id": service["product_id"],
+            "service_correlation_id": service["correlation_id"],
+        }
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="Bearer token or signed RunGrow service identity required")
     return {
         "tenant_id": current_user["tenant_id"],
         "user_id": current_user["user"].id,
