@@ -212,7 +212,10 @@ async def test_workforce_routes_use_real_postgres_and_enforce_tenant_and_write_i
         async with AsyncClient(transport=ASGITransport(app=module.app), base_url="http://test") as client:
             read_headers = _signed_headers(b"", "photo-studio-growth-os:read")
             summary = await client.get("/api/v1/workforce/tenant-summary", headers=read_headers)
+            summary_alias = await client.get("/api/v1/workforce/summary", headers=read_headers)
             assert summary.status_code == 200
+            assert summary_alias.status_code == 200
+            assert summary_alias.json() == summary.json()
             assert summary.json()["external_tenant_id"] == external_tenant
             assert summary.json()["lead_count"] == 1
             assert summary.json()["quote_count"] == 1
