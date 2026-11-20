@@ -32,6 +32,7 @@ def _external_tenant(request: Request) -> str:
 def _correlation(request: Request) -> str:
     return request.scope.get("state", {}).get("rungrow_service", {}).get("correlation_id", "rungrow-service")
 
+@router.get("/summary", dependencies=[Depends(require_workforce_scope(READ))])
 @router.get("/tenant-summary", dependencies=[Depends(require_workforce_scope(READ))])
 async def tenant_summary(request: Request, db: Prisma = Depends(get_db)):
     tenant = _tenant(request)
