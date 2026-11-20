@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [feat/rungrow-workforce-adapter-v1]
+    branches: [main, feat/rungrow-workforce-adapter-v1]
   workflow_dispatch:
 
 permissions:
